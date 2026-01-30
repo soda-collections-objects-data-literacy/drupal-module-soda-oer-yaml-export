@@ -1,0 +1,5 @@
+soda_oer_yaml.yaml_tab:
+  route_name: soda_oer_yaml.yaml_tab
+  title: 'YAML'
+  base_route: entity.node.canonical
+  weight: 10
