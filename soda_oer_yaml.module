@@ -1,0 +1,18 @@
+<?php
+
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\node\NodeInterface;
+
+function soda_oer_yaml_local_tasks_alter(&$local_tasks) {
+  $route_match = \Drupal::routeMatch();
+  if ($route_match->getRouteName() === 'entity.node.canonical') {
+    $node = $route_match->getParameter('node');
+    if ($node instanceof NodeInterface) {
+      $current_user = \Drupal::currentUser();
+      if (!$node->access('update', $current_user)) {
+        // Remove the YAML tab if the user cannot edit the node.
+        unset($local_tasks['soda_oer_yaml.yaml_tab']);
+      }
+    }
+  }
+}
