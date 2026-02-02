@@ -4,7 +4,7 @@ soda_oer_yaml.yaml_tab:
     _controller: '\Drupal\soda_oer_yaml\Controller\YamlTabController::yaml'
     _title: 'YAML'
   requirements:
-    _entity_access: 'node.view'
+    _entity_access: 'node.update'
     node: \d+
   options:
     _admin_route: FALSE
