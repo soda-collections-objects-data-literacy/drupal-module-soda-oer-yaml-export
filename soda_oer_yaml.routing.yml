@@ -8,3 +8,13 @@ soda_oer_yaml.yaml_tab:
     node: \d+
   options:
     _admin_route: FALSE
+
+soda_oer_yaml.download_all:
+  path: '/admin/content/oer-yaml/download-all'
+  defaults:
+    _controller: '\Drupal\soda_oer_yaml\Controller\YamlTabController::downloadAllYaml'
+    _title: 'Download all YAML files'
+  requirements:
+    _permission: 'administer nodes'
+  options:
+    _admin_route: TRUE
