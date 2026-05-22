@@ -49,11 +49,12 @@ class YamlTabController extends ControllerBase {
       return $this->redirect('system.admin_content');
     }
 
-    // Load all published 'ressource' nodes.
+    // Load all published 'ressource' nodes where field_format is not empty.
     $nids = $this->nodeStorage->getQuery()
       ->accessCheck(TRUE)
       ->condition('type', 'ressource')
       ->condition('status', NodeInterface::PUBLISHED)
+      ->exists('field_format')
       ->execute();
 
     $nodes = $this->nodeStorage->loadMultiple($nids);
@@ -61,7 +62,7 @@ class YamlTabController extends ControllerBase {
     $includeEntries = [];
     foreach ($nodes as $node) {
       $yaml = $this->generateNodeYaml($node);
-      $filename = 'oer_' . $node->id() . '_' . str_replace(' ', '_', $node->getTitle()) . '.yaml';
+      $filename = 'oer_' . $node->id() . '_' . str_replace(' ', '_', $node->getTitle()) . '.yml';
       $subpath = 'oer_metadata/' . $filename;
       $zip->addFromString($subpath, $yaml);
       $includeEntries[] = '- !include oer_metadata/' . $filename;
@@ -110,6 +111,30 @@ class YamlTabController extends ControllerBase {
       }
     }
     
+    # OERSI format
+    $oersi_material_formats = [];
+    foreach ($node->field_oersi_materialart as $item) {
+      if ($term = $item->entity) {
+        $oersi_material_formats[] = $term->get('field_uri')->getValue()[0]['value'];
+      }
+    }
+    
+    # creators
+    $creators = [];
+    $creators[] = ["name" => "SODa - Sammlungen, Objekte, Datenkompetenzen", "type" => "Organization"];
+    
+    # image
+    $image_url = '';
+    if (!$node->get('field_newsimage')->isEmpty()) {
+      $media = $node->get('field_newsimage')->entity;
+      if ($media && !$media->get('field_media_image')->isEmpty()) {
+        $file = $media->get('field_media_image')->entity;
+        if ($file) {
+          $image_url = \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri());
+        }
+      }
+    }
+    
     $data = [
       '\'@context\'' => "https://schema.org/",
       'type' => "LearningResource",
@@ -123,7 +148,10 @@ class YamlTabController extends ControllerBase {
       "datePublished" => date('Y-m-d', $node->get('created')->getValue()[0]['value']),
       "inLanguage" => [$node->get('field_oer_sprache')->getValue()[0]['value']],
       "id" => $node->get('field_externer_link')->getValue()[0]['uri'],
-      "keywords" => $tag_names
+      "keywords" => $tag_names,
+      "learningResourceType" => $oersi_material_formats,
+      "creator" => $creators,
+      "image" => $image_url
     ];
 
     return \Symfony\Component\Yaml\Yaml::dump($data, 10, 2);
