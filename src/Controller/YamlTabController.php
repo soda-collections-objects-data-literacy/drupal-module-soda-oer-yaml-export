@@ -98,18 +98,32 @@ class YamlTabController extends ControllerBase {
    * Generate YAML content for a single node.
    */
   private function generateNodeYaml(NodeInterface $node) {
+    
+    # Body
+    $processed_body = $node->get('body')->processed;
+    
+    # Tags
+    $tag_names = [];
+    foreach ($node->field_tags as $item) {
+      if ($term = $item->entity) {
+        $tag_names[] = $term->getName();
+      }
+    }
+    
     $data = [
       '\'@context\'' => "https://schema.org/",
       'type' => "LearningResource",
       'creativeWorkStatus' => 'Published',
       'name' => $node->getTitle(),
-      'description' => $node->get('body')->getValue(),
+      'description' => strip_tags($processed_body),
       'license' => "https://creativecommons.org/licenses/by/4.0/deed.de",
       'about' => ["https://w3id.org/kim/hochschulfaechersystematik/n0"],
       "learningResourceType" => "https://w3id.org/kim/hcrt/drill_and_practice",
       "educationalLevel" => ["https://w3id.org/kim/educationalLevel/level_A","https://w3id.org/kim/educationalLevel/level_C"],
       "datePublished" => date('Y-m-d', $node->get('created')->getValue()[0]['value']),
       "inLanguage" => [$node->get('field_oer_sprache')->getValue()[0]['value']],
+      "id" => $node->get('field_externer_link')->getValue()[0]['uri'],
+      "keywords" => $tag_names
     ];
 
     return \Symfony\Component\Yaml\Yaml::dump($data, 10, 2);
