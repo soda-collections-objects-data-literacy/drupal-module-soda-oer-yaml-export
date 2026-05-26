@@ -55,6 +55,7 @@ class YamlTabController extends ControllerBase {
       ->condition('type', 'ressource')
       ->condition('status', NodeInterface::PUBLISHED)
       ->exists('field_format')
+      ->condition('field_auf_oersi_publizieren', TRUE)
       ->execute();
 
     $nodes = $this->nodeStorage->loadMultiple($nids);
@@ -122,6 +123,27 @@ class YamlTabController extends ControllerBase {
     # creators
     $creators = [];
     $creators[] = ["name" => "SODa - Sammlungen, Objekte, Datenkompetenzen", "type" => "Organization"];
+    foreach ($node->field_autor_innen as $item) {
+      if ($user = $item->entity) {
+        #$username = $user->get('name')->getValue()[0]['value'];
+        $userid = $user->id;
+        #if ($user_institution = $user->get('field_oer_autor_institution')->getValue()[0]->entity){
+        $user_institution = $user->get('field_oer_autor_institution')->get(0)->view(['type' => 'list_default'])['#markup'];
+        
+        #$user_institution = $node->get('field_oer_autor_institution')->getSetting('allowed_values')[$user_institution_val];
+        
+        $user_givenname = $user->get('field_oersi_autor_vorname')->getValue()[0]['value'];
+        $user_familyname = $user->get('field_oersi_autor_nachname')->getValue()[0]['value'];
+        $user_orcid = $user->get('field_oersi_autor_orcid')->getValue()[0]['value'];
+        
+        
+        $creators[] = array("givenName" => $user_givenname, 
+                          "familyName" => $user_familyname, 
+                          "id" => $user_orcid, 
+                          "type" => "Person",
+                          "affiliation" => array("name" => $user_institution,"type" => "Organization"));
+      }
+    }
     
     # image
     $image_url = '';
