@@ -158,7 +158,7 @@ class YamlTabController extends ControllerBase {
     }
     
     $data = [
-      '\'@context\'' => "https://schema.org/",
+      '@context' => "https://schema.org/",
       'type' => "LearningResource",
       'creativeWorkStatus' => 'Published',
       'name' => $node->getTitle(),
