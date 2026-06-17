@@ -38,6 +38,14 @@ class YamlTabController extends ControllerBase {
   }
 
   /**
+   * Sanitize a string to be used as a filename, allowing only letters, numbers, hyphens, and underscores.
+   */
+  private function sanitizeFilename($string) {
+    // Replace any character that is not alphanumeric, hyphen, or underscore with an underscore.
+    return preg_replace('/[^a-zA-Z0-9\-_]/', '_', $string);
+  }
+
+  /**
    * Download all ressource nodes as YAML files in a zip archive.
    */
   public function downloadAllYaml() {
@@ -63,7 +71,7 @@ class YamlTabController extends ControllerBase {
     $includeEntries = [];
     foreach ($nodes as $node) {
       $yaml = $this->generateNodeYaml($node);
-      $filename = 'oer_' . $node->id() . '_' . str_replace(' ', '_', $node->getTitle()) . '.yml';
+      $filename = 'oer_' . $node->id() . '_' . $this->sanitizeFilename($node->getTitle()) . '.yml';
       $subpath = 'oer_metadata/' . $filename;
       $zip->addFromString($subpath, $yaml);
       $includeEntries[] = '- !include oer_metadata/' . $filename;
