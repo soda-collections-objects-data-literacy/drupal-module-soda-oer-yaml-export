@@ -109,8 +109,8 @@ class YamlTabController extends ControllerBase {
    */
   private function generateNodeYaml(NodeInterface $node) {
     
-    # Body
-    $processed_body = $node->get('body')->processed;
+    # Body - use raw value to preserve line breaks
+    $body_value = $node->get('body')->value;
     
     # Tags
     $tag_names = [];
@@ -128,30 +128,34 @@ class YamlTabController extends ControllerBase {
       }
     }
     
-    # creators
+    # creators - Person first, then Organization
     $creators = [];
-    $creators[] = ["name" => "SODa - Sammlungen, Objekte, Datenkompetenzen", "type" => "Organization"];
     foreach ($node->field_autor_innen as $item) {
       if ($user = $item->entity) {
-        #$username = $user->get('name')->getValue()[0]['value'];
-        $userid = $user->id;
-        #if ($user_institution = $user->get('field_oer_autor_institution')->getValue()[0]->entity){
         $user_institution = $user->get('field_oer_autor_institution')->get(0)->view(['type' => 'list_default'])['#markup'];
-        
-        #$user_institution = $node->get('field_oer_autor_institution')->getSetting('allowed_values')[$user_institution_val];
         
         $user_givenname = $user->get('field_oersi_autor_vorname')->getValue()[0]['value'];
         $user_familyname = $user->get('field_oersi_autor_nachname')->getValue()[0]['value'];
         $user_orcid = $user->get('field_oersi_autor_orcid')->getValue()[0]['value'];
         
-        
-        $creators[] = array("givenName" => $user_givenname, 
-                          "familyName" => $user_familyname, 
-                          "id" => $user_orcid, 
-                          "type" => "Person",
-                          "affiliation" => array("name" => $user_institution,"type" => "Organization"));
+        $creators[] = [
+          "givenName" => $user_givenname, 
+          "familyName" => $user_familyname, 
+          "id" => $user_orcid, 
+          "type" => "Person",
+          "affiliation" => [
+            "name" => $user_institution,
+            "id" => "https://ror.org/00f7hpc57",
+            "type" => "Organization"
+          ]
+        ];
       }
     }
+    
+    $creators[] = [
+      "name" => "SODa - Sammlungen, Objekte, Datenkompetenzen",
+      "type" => "Organization"
+    ];
     
     # image
     $image_url = '';
@@ -165,25 +169,56 @@ class YamlTabController extends ControllerBase {
       }
     }
     
+    # Build description - strip tags, convert nbsp, and normalize
+    $description = strip_tags($body_value);
+    $description = str_replace('&nbsp;', ' ', $description);
+    $description = str_replace("\r\n", "\n", $description);
+    $description = str_replace("\r", "\n", $description);
+    
+    # Word-wrap description at 80 characters to ensure it has newlines
+    $description = wordwrap($description, 80, "\n");
+    
+    # Build id
+    $id = $node->get('field_externer_link')->getValue()[0]['uri'];
+    
+    # Build datePublished - use changed date if available, otherwise created
+    $publish_timestamp = $node->get('changed')->getValue()[0]['value'];
+    $datePublished = date('Y-m-d', $publish_timestamp);
+    
+    # about - get from field if available
+    $about = ["https://w3id.org/kim/hochschulfaechersystematik/n0"];
+    
     $data = [
       '@context' => "https://schema.org/",
-      'type' => "LearningResource",
       'creativeWorkStatus' => 'Published',
+      'type' => "LearningResource",
       'name' => $node->getTitle(),
-      'description' => strip_tags($processed_body),
+      'description' => $description,
       'license' => "https://creativecommons.org/licenses/by/4.0/deed.de",
-      'about' => ["https://w3id.org/kim/hochschulfaechersystematik/n0"],
-      "learningResourceType" => "https://w3id.org/kim/hcrt/drill_and_practice",
-      "educationalLevel" => ["https://w3id.org/kim/educationalLevel/level_A","https://w3id.org/kim/educationalLevel/level_C"],
-      "datePublished" => date('Y-m-d', $node->get('created')->getValue()[0]['value']),
-      "inLanguage" => [$node->get('field_oer_sprache')->getValue()[0]['value']],
-      "id" => $node->get('field_externer_link')->getValue()[0]['uri'],
-      "keywords" => $tag_names,
-      "learningResourceType" => $oersi_material_formats,
-      "creator" => $creators,
-      "image" => $image_url
+      'id' => $id,
+      'creator' => $creators,
+      'inLanguage' => [$node->get('field_oer_sprache')->getValue()[0]['value']],
+      'about' => $about,
+      'image' => $image_url,
+      'learningResourceType' => $oersi_material_formats,
+      'educationalLevel' => ["https://w3id.org/kim/educationalLevel/level_A","https://w3id.org/kim/educationalLevel/level_C"],
+      'datePublished' => $datePublished,
     ];
+    
+    if (!empty($tag_names)) {
+      $data['keywords'] = $tag_names;
+    }
 
-    return \Symfony\Component\Yaml\Yaml::dump($data, 10, 2);
+    $yaml = \Symfony\Component\Yaml\Yaml::dump($data, 10, 2, \Symfony\Component\Yaml\Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK);
+    
+    # Post-process to convert literal blocks to folded blocks for description and id
+    # Symfony Yaml outputs "description: |\n  text..." or "description: |-\n  text..."
+    # We want to convert to "description: >-\n  text..."
+    $yaml = preg_replace('/^(description:)\s*\|-\s*\n/m', '$1 >-' . "\n", $yaml);
+    $yaml = preg_replace('/^(description:)\s*\|\s*\n/m', '$1 >-' . "\n", $yaml);
+    $yaml = preg_replace('/^(id:)\s*\|-\s*\n/m', '$1 >-' . "\n", $yaml);
+    $yaml = preg_replace('/^(id:)\s*\|\s*\n/m', '$1 >-' . "\n", $yaml);
+    
+    return $yaml;
   }
 }
