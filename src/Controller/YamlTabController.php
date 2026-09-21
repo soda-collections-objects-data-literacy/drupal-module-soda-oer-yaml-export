@@ -105,6 +105,23 @@ class YamlTabController extends ControllerBase {
   }
 
   /**
+   * Remove empty values (empty strings, empty arrays/dicts, null) from array recursively.
+   */
+  private function filterEmptyValues(array $data): array {
+    foreach ($data as $key => $value) {
+      if (is_array($value)) {
+        $data[$key] = $this->filterEmptyValues($value);
+        if ($data[$key] === []) {
+          unset($data[$key]);
+        }
+      } elseif ($value === '' || $value === null) {
+        unset($data[$key]);
+      }
+    }
+    return $data;
+  }
+
+  /**
    * Generate YAML content for a single node.
    */
   private function generateNodeYaml(NodeInterface $node) {
@@ -208,6 +225,9 @@ class YamlTabController extends ControllerBase {
     if (!empty($tag_names)) {
       $data['keywords'] = $tag_names;
     }
+
+    # Remove empty values (empty strings, empty arrays, null)
+    $data = $this->filterEmptyValues($data);
 
     $yaml = \Symfony\Component\Yaml\Yaml::dump($data, 10, 2, \Symfony\Component\Yaml\Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK);
     
