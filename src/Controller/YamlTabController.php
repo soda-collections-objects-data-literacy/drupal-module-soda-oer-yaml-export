@@ -46,6 +46,257 @@ class YamlTabController extends ControllerBase {
   }
 
   /**
+   * Download CSV file with the same data as YAML export.
+   */
+  public function downloadCsv() {
+    // Load all published 'ressource' nodes where field_format is not empty.
+    $nodes = fetchNodes();
+    
+    if (empty($nodes)) {
+      $this->messenger()->addWarning('No resources to export.');
+      return $this->redirect('system.admin_content');
+    }
+
+    $output = $this->generateCsvContent($nodes);
+    
+    $response = new Response($output);
+    $response->headers->set('Content-Type', 'text/csv; charset=utf-8');
+    $response->headers->set('Content-Disposition', 'attachment; filename="oer_export_' . date('Y-m-d_His') . '.csv"');
+    $response->headers->set('Pragma', 'public');
+    $response->headers->set('Cache-Control', 'must-revalidate, post-check=0, pre-check=0');
+    $response->headers->set('Expires', '0');
+
+    return $response;
+  }
+
+  /**
+   * Generate CSV content for multiple nodes.
+   */
+  private function generateCsvContent(array $nodes): string {
+    $output = "\xEF\xBB\xBF"; // UTF-8 BOM
+    
+    // Add header row
+    $headers = [
+      'Authors',
+      'License',
+      'Link',
+      'Title',
+      'Community',
+      'Description',
+      'Discipline',
+      'FileFormat',
+      'Keywords',
+      'Language',
+      'LearningResourceType',
+      'ProficiencyLevel',
+      'PublicationDate',
+      'TargetGroup',
+    ];
+    $output .= implode(',', $headers) . "\r\n";
+    
+    foreach ($nodes as $node) {
+      $row = $this->generateCsvRow($node);
+      $output .= implode(',', $row) . "\r\n";
+    }
+    
+    return $output;
+  }
+
+  /**
+   * Extract data from a node into a structured array.
+   * This method is used by both YAML and CSV generation.
+   */
+  private function extractNodeData(NodeInterface $node): array {
+    $body_value = $node->get('body')->value;
+    
+    // Tags
+    $tag_names = [];
+    foreach ($node->field_tags ?? [] as $item) {
+      if ($term = $item->entity) {
+        $tag_names[] = $term->getName();
+      }
+    }
+    
+    // OERSI material formats (LearningResourceType)
+    $oersi_material_formats = [];
+    foreach ($node->field_oersi_materialart ?? [] as $item) {
+      if ($term = $item->entity) {
+        $oersi_material_formats[] = $term->get('field_uri')->getValue()[0]['value'] ?? '';
+      }
+    }
+    
+    // Creators/ Authors
+    $creators = [];
+    $author_names = [];
+    foreach ($node->field_autor_innen ?? [] as $item) {
+      if ($user = $item->entity) {
+        $user_institution = $user->get('field_oer_autor_institution')->get(0)->view(['type' => 'list_default'])['#markup'] ?? '';
+        $user_givenname = $user->get('field_oersi_autor_vorname')->getValue()[0]['value'] ?? '';
+        $user_familyname = $user->get('field_oersi_autor_nachname')->getValue()[0]['value'] ?? '';
+        $user_orcid = $user->get('field_oersi_autor_orcid')->getValue()[0]['value'] ?? '';
+        
+        // For YAML
+        $creators[] = [
+          "givenName" => $user_givenname, 
+          "familyName" => $user_familyname, 
+          "id" => $user_orcid, 
+          "type" => "Person",
+          "affiliation" => [
+            "name" => $user_institution,
+            "id" => "https://ror.org/00f7hpc57",
+            "type" => "Organization"
+          ]
+        ];
+        
+        // For CSV
+        if ($user_givenname || $user_familyname) {
+          $author_names[] = trim("$user_givenname $user_familyname");
+        }
+      }
+    }
+    
+    // Add SODa organization
+    $creators[] = [
+      "name" => "SODa - Sammlungen, Objekte, Datenkompetenzen",
+      "type" => "Organization"
+    ];
+    $author_names[] = 'SODa - Sammlungen, Objekte, Datenkompetenzen';
+    
+    $about = ["https://w3id.org/kim/hochschulfaechersystematik/n0"];
+    
+    // FileFormat
+    $file_formats = [];
+    if (!$node->get('field_format')->isEmpty()) {
+      foreach ($node->field_format as $item) {
+        if ($term = $item->entity) {
+          $file_formats[] = $term->getName();
+        }
+      }
+    }
+    
+    // Language - with default
+    $languages = [];
+    if (!$node->get('field_oer_sprache')->isEmpty()) {
+      $lang_values = $node->get('field_oer_sprache')->getValue();
+      foreach ($lang_values as $value) {
+        if (!empty($value['value'])) {
+          $languages[] = $value['value'];
+        }
+      }
+    }
+    if (empty($languages)) {
+      $languages = ['de'];
+    }
+    
+    $educational_levels = ["https://w3id.org/kim/educationalLevel/level_A", "https://w3id.org/kim/educationalLevel/level_C"];
+    
+    // Publication Date
+    $datePublished = '';
+    $changed = $node->get('changed')->getValue();
+    $created = $node->get('created')->getValue();
+    if (!empty($changed[0]['value'])) {
+      $datePublished = date('Y-m-d', $changed[0]['value']);
+    } elseif (!empty($created[0]['value'])) {
+      $datePublished = date('Y-m-d', $created[0]['value']);
+    }
+    
+    // Link (id)
+    $id = '';
+    if (!$node->get('field_externer_link')->isEmpty()) {
+      $id = $node->get('field_externer_link')->getValue()[0]['uri'] ?? '';
+    }
+    
+    // Description
+    $description = '';
+    if (!empty($body_value)) {
+      $description = strip_tags($body_value);
+      $description = str_replace('&nbsp;', ' ', $description);
+      $description = str_replace("\r\n", "\n", $description);
+      $description = str_replace("\r", "\n", $description);
+    }
+    
+    // Image URL
+    $image_url = '';
+    if (!$node->get('field_newsimage')->isEmpty()) {
+      $media = $node->get('field_newsimage')->entity;
+      if ($media && !$media->get('field_media_image')->isEmpty()) {
+        $file = $media->get('field_media_image')->entity;
+        if ($file) {
+          $image_url = \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri());
+        }
+      }
+    }
+    
+    // Community
+    $community[] = "SODa - Sammlungen, Objekte, Datenkompetenzen (S)";
+    
+    // TargetGroup
+    $target_group[] = ["student (BA)", "student (MA)", "student (PhD)", 
+                      "data steward", "teacher (school)", 
+                      "teacher (higher education)", "researcher"];
+    
+    $license = 'https://creativecommons.org/licenses/by/4.0/deed.de';
+    
+    
+    return [
+      'body_value' => $body_value,
+      'title' => $node->getTitle(),
+      'tag_names' => $tag_names,
+      'oersi_material_formats' => $oersi_material_formats,
+      'creators' => $creators,
+      'author_names' => $author_names,
+      'about' => $about,
+      'file_formats' => $file_formats,
+      'languages' => $languages,
+      'educational_levels' => $educational_levels,
+      'datePublished' => $datePublished,
+      'id' => $id,
+      'description' => $description,
+      'image_url' => $image_url,
+      'community' => $community,
+      'target_group' => $target_group,
+      'license' => $license,
+    ];
+  }
+
+  /**
+   * Generate a single CSV row for a node.
+   */
+  private function generateCsvRow(NodeInterface $node): array {
+    $data = $this->extractNodeData($node);
+    
+    // Helper function to join array with asterisk
+    $joinMulti = function(array $items): string {
+      return implode(' * ', $items);
+    };
+    
+    // Build the row, escaping commas and quotes
+    $escapeCsv = function(string $value): string {
+      if (strpos($value, ',') !== false || strpos($value, '"') !== false || strpos($value, '\n') !== false) {
+        return '"' . str_replace('"', '""', $value) . '"';
+      }
+      return $value;
+    };
+    
+    return [
+      $escapeCsv($joinMulti($data['author_names'])),
+      $escapeCsv($data['license']),
+      $escapeCsv($data['id']),
+      $escapeCsv($data['title']),
+      $escapeCsv($joinMulti($data['community'])),
+      $escapeCsv($data['description']),
+      $escapeCsv($joinMulti($data['about'])),
+      $escapeCsv($joinMulti($data['file_formats'])),
+      $escapeCsv($joinMulti($data['tag_names'])),
+      $escapeCsv($joinMulti($data['languages'])),
+      $escapeCsv($joinMulti($data['oersi_material_formats'])),
+      $escapeCsv($joinMulti($data['educational_levels'])),
+      $escapeCsv($data['datePublished']),
+      $escapeCsv($joinMulti($data['target_group'])),
+    ];
+  }
+
+  /**
    * Download all ressource nodes as YAML files in a zip archive.
    */
   public function downloadAllYaml() {
@@ -57,16 +308,7 @@ class YamlTabController extends ControllerBase {
       return $this->redirect('system.admin_content');
     }
 
-    // Load all published 'ressource' nodes where field_format is not empty.
-    $nids = $this->nodeStorage->getQuery()
-      ->accessCheck(TRUE)
-      ->condition('type', 'ressource')
-      ->condition('status', NodeInterface::PUBLISHED)
-      ->exists('field_format')
-      ->condition('field_auf_oersi_publizieren', TRUE)
-      ->execute();
-
-    $nodes = $this->nodeStorage->loadMultiple($nids);
+    $nodes = fetchNodes();
     
     $includeEntries = [];
     foreach ($nodes as $node) {
@@ -103,6 +345,23 @@ class YamlTabController extends ControllerBase {
 
     return $response;
   }
+  
+  /**
+  * Get all relevant nodes (Knowledge Items) to be published
+  */
+  private function fetchNodes() {
+    // Load all published 'ressource' nodes where field_format is not empty.
+    $nids = $this->nodeStorage->getQuery()
+      ->accessCheck(TRUE)
+      ->condition('type', 'ressource')
+      ->condition('status', NodeInterface::PUBLISHED)
+      ->exists('field_format')
+      ->condition('field_auf_oersi_publizieren', TRUE)
+      ->execute();
+
+    $nodes = $this->nodeStorage->loadMultiple($nids);
+    return $nodes;
+  }
 
   /**
    * Remove empty values (empty strings, empty arrays/dicts, null) from array recursively.
@@ -125,111 +384,36 @@ class YamlTabController extends ControllerBase {
    * Generate YAML content for a single node.
    */
   private function generateNodeYaml(NodeInterface $node) {
+    $data = $this->extractNodeData($node);
     
-    # Body - use raw value to preserve line breaks
-    $body_value = $node->get('body')->value;
+    # Build description - word-wrap at 80 characters
+    $description = wordwrap($data['description'], 80, "\n");
     
-    # Tags
-    $tag_names = [];
-    foreach ($node->field_tags as $item) {
-      if ($term = $item->entity) {
-        $tag_names[] = $term->getName();
-      }
-    }
-    
-    # OERSI format
-    $oersi_material_formats = [];
-    foreach ($node->field_oersi_materialart as $item) {
-      if ($term = $item->entity) {
-        $oersi_material_formats[] = $term->get('field_uri')->getValue()[0]['value'];
-      }
-    }
-    
-    # creators - Person first, then Organization
-    $creators = [];
-    foreach ($node->field_autor_innen as $item) {
-      if ($user = $item->entity) {
-        $user_institution = $user->get('field_oer_autor_institution')->get(0)->view(['type' => 'list_default'])['#markup'];
-        
-        $user_givenname = $user->get('field_oersi_autor_vorname')->getValue()[0]['value'];
-        $user_familyname = $user->get('field_oersi_autor_nachname')->getValue()[0]['value'];
-        $user_orcid = $user->get('field_oersi_autor_orcid')->getValue()[0]['value'];
-        
-        $creators[] = [
-          "givenName" => $user_givenname, 
-          "familyName" => $user_familyname, 
-          "id" => $user_orcid, 
-          "type" => "Person",
-          "affiliation" => [
-            "name" => $user_institution,
-            "id" => "https://ror.org/00f7hpc57",
-            "type" => "Organization"
-          ]
-        ];
-      }
-    }
-    
-    $creators[] = [
-      "name" => "SODa - Sammlungen, Objekte, Datenkompetenzen",
-      "type" => "Organization"
-    ];
-    
-    # image
-    $image_url = '';
-    if (!$node->get('field_newsimage')->isEmpty()) {
-      $media = $node->get('field_newsimage')->entity;
-      if ($media && !$media->get('field_media_image')->isEmpty()) {
-        $file = $media->get('field_media_image')->entity;
-        if ($file) {
-          $image_url = \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri());
-        }
-      }
-    }
-    
-    # Build description - strip tags, convert nbsp, and normalize
-    $description = strip_tags($body_value);
-    $description = str_replace('&nbsp;', ' ', $description);
-    $description = str_replace("\r\n", "\n", $description);
-    $description = str_replace("\r", "\n", $description);
-    
-    # Word-wrap description at 80 characters to ensure it has newlines
-    $description = wordwrap($description, 80, "\n");
-    
-    # Build id
-    $id = $node->get('field_externer_link')->getValue()[0]['uri'];
-    
-    # Build datePublished - use changed date if available, otherwise created
-    $publish_timestamp = $node->get('changed')->getValue()[0]['value'];
-    $datePublished = date('Y-m-d', $publish_timestamp);
-    
-    # about - get from field if available
-    $about = ["https://w3id.org/kim/hochschulfaechersystematik/n0"];
-    
-    $data = [
+    $yaml_data = [
       '@context' => "https://schema.org/",
       'creativeWorkStatus' => 'Published',
       'type' => "LearningResource",
-      'name' => $node->getTitle(),
+      'name' => $data['title'],
       'description' => $description,
-      'license' => "https://creativecommons.org/licenses/by/4.0/deed.de",
-      'id' => $id,
-      'creator' => $creators,
-      'inLanguage' => [$node->get('field_oer_sprache')->getValue()[0]['value']],
-      'about' => $about,
-      'image' => $image_url,
-      'learningResourceType' => $oersi_material_formats,
-      'educationalLevel' => ["https://w3id.org/kim/educationalLevel/level_A","https://w3id.org/kim/educationalLevel/level_C"],
-      'datePublished' => $datePublished,
+      'license' => $data['license'],
+      'id' => $data['id'],
+      'creator' => $data['creators'],
+      'inLanguage' => $data['languages'],
+      'about' => $data['about'],
+      'image' => $data['image_url'],
+      'learningResourceType' => $data['oersi_material_formats'],
+      'educationalLevel' => $data['educational_levels'],
+      'datePublished' => $data['datePublished'],
     ];
     
-    if (!empty($tag_names)) {
-      $data['keywords'] = $tag_names;
+    if (!empty($data['tag_names'])) {
+      $yaml_data['keywords'] = $data['tag_names'];
     }
 
     # Remove empty values (empty strings, empty arrays, null)
-    $data = $this->filterEmptyValues($data);
+    $yaml_data = $this->filterEmptyValues($yaml_data);
 
-    $yaml = \Symfony\Component\Yaml\Yaml::dump($data, 10, 2, \Symfony\Component\Yaml\Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK);
+    $yaml = \Symfony\Component\Yaml\Yaml::dump($yaml_data, 10, 2, \Symfony\Component\Yaml\Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK);
     
     # Post-process to convert literal blocks to folded blocks for description and id
     # Symfony Yaml outputs "description: |\n  text..." or "description: |-\n  text..."

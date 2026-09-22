@@ -18,3 +18,13 @@ soda_oer_yaml.download_all:
     _permission: 'administer nodes'
   options:
     _admin_route: TRUE
+
+soda_oer_yaml.download_csv:
+  path: '/admin/content/oer-yaml/download-csv'
+  defaults:
+    _controller: '\Drupal\soda_oer_yaml\Controller\YamlTabController::downloadCsv'
+    _title: 'Download CSV'
+  requirements:
+    _permission: 'administer nodes'
+  options:
+    _admin_route: TRUE
