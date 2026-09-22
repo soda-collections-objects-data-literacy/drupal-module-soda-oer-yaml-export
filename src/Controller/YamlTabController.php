@@ -192,13 +192,10 @@ class YamlTabController extends ControllerBase {
     
     // Publication Date
     $datePublished = '';
-    $changed = $node->get('changed')->getValue();
     $created = $node->get('created')->getValue();
-    if (!empty($changed[0]['value'])) {
-      $datePublished = date('Y-m-d', $changed[0]['value']);
-    } elseif (!empty($created[0]['value'])) {
+    if (!empty($created[0]['value'])) {
       $datePublished = date('Y-m-d', $created[0]['value']);
-    }
+    } 
     
     // Link (id)
     $id = '';
@@ -231,7 +228,7 @@ class YamlTabController extends ControllerBase {
     $community[] = "SODa - Sammlungen, Objekte, Datenkompetenzen (S)";
     
     // TargetGroup
-    $target_group[] = ["student (BA)", "student (MA)", "student (PhD)", 
+    $target_group = ["student (BA)", "student (MA)", "student (PhD)", 
                       "data steward", "teacher (school)", 
                       "teacher (higher education)", "researcher"];
     
