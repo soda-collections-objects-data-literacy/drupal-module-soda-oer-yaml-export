@@ -50,7 +50,7 @@ class YamlTabController extends ControllerBase {
    */
   public function downloadCsv() {
     // Load all published 'ressource' nodes where field_format is not empty.
-    $nodes = fetchNodes();
+    $nodes = $this->fetchNodes();
     
     if (empty($nodes)) {
       $this->messenger()->addWarning('No resources to export.');
@@ -308,7 +308,7 @@ class YamlTabController extends ControllerBase {
       return $this->redirect('system.admin_content');
     }
 
-    $nodes = fetchNodes();
+    $nodes = $this->fetchNodes();
     
     $includeEntries = [];
     foreach ($nodes as $node) {
